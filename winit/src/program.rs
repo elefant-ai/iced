@@ -525,32 +525,52 @@ where
 }
 
 #[derive(Debug)]
-enum Event<Message: 'static> {
+/// Events that can be sent to the [`run_instance`] function.
+pub enum Event<Message: 'static> {
+    /// A new window was created.
     WindowCreated {
+        /// The ID of the window.
         id: window::Id,
+        /// The window that was created.
         window: Arc<winit::window::Window>,
+        /// Whether the window should exit when the close button is pressed.
         exit_on_close_request: bool,
+        /// Whether the window should be made visible.
         make_visible: bool,
+        /// A channel to send the window ID to when the window is opened.
         on_open: oneshot::Sender<window::Id>,
     },
+    /// An event from the event loop.
     EventLoopAwakened(winit::event::Event<Message>),
 }
 
 #[derive(Debug)]
-enum Control {
+/// Controls that can be sent to the [`run_instance`] function.
+pub enum Control {
+    /// Change the control flow of the event loop.
     ChangeFlow(winit::event_loop::ControlFlow),
+    /// Exit the event loop.
     Exit,
+    /// Crash the application with an error.
     Crash(Error),
+    /// Create a new window.
     CreateWindow {
+        /// The ID of the window.
         id: window::Id,
+        /// The settings of the window.
         settings: window::Settings,
+        /// The title of the window.
         title: String,
+        /// The monitor to create the window on.
         monitor: Option<winit::monitor::MonitorHandle>,
+        /// A channel to send the window ID to when the window is opened.
         on_open: oneshot::Sender<window::Id>,
     },
 }
 
-async fn run_instance<P, C>(
+/// Runs an instance of a [`Program`] with an executor, compositor, and the
+/// provided settings.
+pub async fn run_instance<P, C>(
     mut program: P,
     mut runtime: Runtime<P::Executor, Proxy<P::Message>, Action<P::Message>>,
     mut proxy: Proxy<P::Message>,
