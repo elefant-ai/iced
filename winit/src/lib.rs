@@ -66,14 +66,17 @@ use std::slice;
 use std::sync::Arc;
 
 /// Runs a [`Program`] with the provided settings.
-pub fn run<P>(
+pub fn run<P, DeviceEvent>(
     program: P,
     settings: Settings,
     window_settings: Option<window::Settings>,
+    on_device_event: DeviceEvent,
 ) -> Result<(), Error>
 where
     P: Program + 'static,
     P::Theme: theme::Base,
+    DeviceEvent:
+        Fn(winit::event::DeviceId, winit::event::DeviceEvent) + 'static,
 {
     use winit::event_loop::EventLoop;
 
@@ -140,13 +143,14 @@ where
 
     let context = task::Context::from_waker(task::noop_waker_ref());
 
-    struct Runner<Message: 'static, F> {
+    struct Runner<Message: 'static, F, DeviceEvent> {
         instance: std::pin::Pin<Box<F>>,
         context: task::Context<'static>,
         id: Option<String>,
         sender: mpsc::UnboundedSender<Event<Action<Message>>>,
         receiver: mpsc::UnboundedReceiver<Control>,
         error: Option<Error>,
+        on_device_event: DeviceEvent,
 
         #[cfg(target_arch = "wasm32")]
         canvas: Option<web_sys::HtmlCanvasElement>,
@@ -159,6 +163,7 @@ where
         sender: event_sender,
         receiver: control_receiver,
         error: None,
+        on_device_event,
 
         #[cfg(target_arch = "wasm32")]
         canvas: None,
@@ -166,12 +171,24 @@ where
 
     boot_span.finish();
 
-    impl<Message, F> winit::application::ApplicationHandler<Action<Message>>
-        for Runner<Message, F>
+    impl<Message, F, DeviceEvent>
+        winit::application::ApplicationHandler<Action<Message>>
+        for Runner<Message, F, DeviceEvent>
     where
         Message: std::fmt::Debug,
         F: Future<Output = ()>,
+        DeviceEvent:
+            Fn(winit::event::DeviceId, winit::event::DeviceEvent) + 'static,
     {
+        fn device_event(
+            &mut self,
+            _: &winit::event_loop::ActiveEventLoop,
+            device_id: winit::event::DeviceId,
+            event: winit::event::DeviceEvent,
+        ) {
+            (self.on_device_event)(device_id, event);
+        }
+
         fn resumed(
             &mut self,
             _event_loop: &winit::event_loop::ActiveEventLoop,
@@ -268,7 +285,7 @@ where
         }
     }
 
-    impl<Message, F> Runner<Message, F>
+    impl<Message, F, DeviceEvent> Runner<Message, F, DeviceEvent>
     where
         F: Future<Output = ()>,
     {

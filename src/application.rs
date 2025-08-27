@@ -175,6 +175,15 @@ impl<P: Program> Application<P> {
     where
         Self: 'static,
     {
+        self.run_with_device_events(|_, _| {})
+    }
+
+    /// Runs the [`Application`] with device events.
+    pub fn run_with_device_events<F>(self, on_device_event: F) -> Result
+    where
+        F: Fn(iced_winit::winit::event::DeviceId, iced_winit::winit::event::DeviceEvent) + 'static,
+        Self: 'static,
+    {
         #[cfg(all(feature = "debug", not(target_arch = "wasm32")))]
         let program = {
             iced_debug::init(iced_debug::Metadata {
@@ -189,7 +198,12 @@ impl<P: Program> Application<P> {
         #[cfg(any(not(feature = "debug"), target_arch = "wasm32"))]
         let program = self.raw;
 
-        Ok(shell::run(program, self.settings, Some(self.window))?)
+        Ok(shell::run(
+            program,
+            self.settings,
+            Some(self.window),
+            on_device_event,
+        )?)
     }
 
     /// Sets the [`Settings`] that will be used to run the [`Application`].
