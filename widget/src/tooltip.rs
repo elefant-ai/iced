@@ -155,10 +155,10 @@ where
         ]
     }
 
-    fn diff(&self, tree: &mut widget::Tree) {
-        tree.diff_children(&[
-            self.content.as_widget(),
-            self.tooltip.as_widget(),
+    fn diff(&mut self, tree: &mut widget::Tree) {
+        tree.diff_children(&mut [
+            self.content.as_widget_mut(),
+            self.tooltip.as_widget_mut(),
         ]);
     }
 
@@ -179,14 +179,16 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut widget::Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
-        self.content
-            .as_widget()
-            .layout(&mut tree.children[0], renderer, limits)
+        self.content.as_widget_mut().layout(
+            &mut tree.children[0],
+            renderer,
+            limits,
+        )
     }
 
     fn update(
@@ -202,6 +204,7 @@ where
     ) {
         let state = tree.state.downcast_mut::<State>();
 
+        let previous_state = *state;
         let was_idle = *state == State::Idle;
 
         *state = cursor
@@ -214,7 +217,9 @@ where
         if was_idle != is_idle {
             shell.invalidate_layout();
             shell.request_redraw();
-        } else if !is_idle && self.position == Position::FollowCursor {
+        } else if self.position == Position::FollowCursor
+            && previous_state != *state
+        {
             shell.request_redraw();
         }
 
@@ -271,8 +276,9 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut widget::Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let state = tree.state.downcast_ref::<State>();
@@ -283,13 +289,14 @@ where
             children.next().unwrap(),
             layout,
             renderer,
+            viewport,
             translation,
         );
 
         let tooltip = if let State::Hovered { cursor_position } = *state {
             Some(overlay::Element::new(Box::new(Overlay {
                 position: layout.position() + translation,
-                tooltip: &self.tooltip,
+                tooltip: &mut self.tooltip,
                 state: children.next().unwrap(),
                 cursor_position,
                 content_bounds: layout.bounds(),
@@ -361,7 +368,7 @@ where
     Renderer: text::Renderer,
 {
     position: Point,
-    tooltip: &'b Element<'a, Message, Theme, Renderer>,
+    tooltip: &'b mut Element<'a, Message, Theme, Renderer>,
     state: &'b mut widget::Tree,
     cursor_position: Point,
     content_bounds: Rectangle,
@@ -381,14 +388,16 @@ where
     fn layout(&mut self, renderer: &Renderer, bounds: Size) -> layout::Node {
         let viewport = Rectangle::with_size(bounds);
 
-        let tooltip_layout = self.tooltip.as_widget().layout(
+        let tooltip_layout = self.tooltip.as_widget_mut().layout(
             self.state,
             renderer,
             &layout::Limits::new(
                 Size::ZERO,
-                self.snap_within_viewport
-                    .then(|| viewport.size())
-                    .unwrap_or(Size::INFINITY),
+                if self.snap_within_viewport {
+                    viewport.size()
+                } else {
+                    Size::INFINITE
+                },
             )
             .shrink(Padding::new(self.padding)),
         );
@@ -501,16 +510,7 @@ where
             &defaults,
             layout.children().next().unwrap(),
             cursor_position,
-            &Rectangle::with_size(Size::INFINITY),
+            &Rectangle::with_size(Size::INFINITE),
         );
-    }
-
-    fn is_over(
-        &self,
-        _layout: Layout<'_>,
-        _renderer: &Renderer,
-        _cursor_position: Point,
-    ) -> bool {
-        false
     }
 }

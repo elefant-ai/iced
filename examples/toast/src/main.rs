@@ -9,7 +9,7 @@ use iced::{Center, Element, Fill, Subscription, Task};
 use toast::{Status, Toast};
 
 pub fn main() -> iced::Result {
-    iced::application("Toast - Iced", App::update, App::view)
+    iced::application(App::default, App::update, App::view)
         .subscription(App::subscription)
         .run()
 }
@@ -287,12 +287,12 @@ mod toast {
         }
 
         fn layout(
-            &self,
+            &mut self,
             tree: &mut Tree,
             renderer: &Renderer,
             limits: &layout::Limits,
         ) -> layout::Node {
-            self.content.as_widget().layout(
+            self.content.as_widget_mut().layout(
                 &mut tree.children[0],
                 renderer,
                 limits,
@@ -314,7 +314,7 @@ mod toast {
                 .collect()
         }
 
-        fn diff(&self, tree: &mut Tree) {
+        fn diff(&mut self, tree: &mut Tree) {
             let instants = tree.state.downcast_mut::<Vec<Option<Instant>>>();
 
             // Invalidating removed instants to None allows us to remove
@@ -327,29 +327,30 @@ mod toast {
                     instants.truncate(new);
                 }
                 (old, new) if old < new => {
-                    instants.extend(
-                        std::iter::repeat(Some(Instant::now())).take(new - old),
-                    );
+                    instants.extend(std::iter::repeat_n(
+                        Some(Instant::now()),
+                        new - old,
+                    ));
                 }
                 _ => {}
             }
 
             tree.diff_children(
-                &std::iter::once(&self.content)
-                    .chain(self.toasts.iter())
+                &mut std::iter::once(&mut self.content)
+                    .chain(self.toasts.iter_mut())
                     .collect::<Vec<_>>(),
             );
         }
 
         fn operate(
-            &self,
+            &mut self,
             state: &mut Tree,
             layout: Layout<'_>,
             renderer: &Renderer,
             operation: &mut dyn Operation,
         ) {
             operation.container(None, layout.bounds(), &mut |operation| {
-                self.content.as_widget().operate(
+                self.content.as_widget_mut().operate(
                     &mut state.children[0],
                     layout,
                     renderer,
@@ -422,8 +423,9 @@ mod toast {
         fn overlay<'b>(
             &'b mut self,
             state: &'b mut Tree,
-            layout: Layout<'_>,
+            layout: Layout<'b>,
             renderer: &Renderer,
+            viewport: &Rectangle,
             translation: Vector,
         ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
             let instants = state.state.downcast_mut::<Vec<Option<Instant>>>();
@@ -434,12 +436,14 @@ mod toast {
                 &mut content_state[0],
                 layout,
                 renderer,
+                viewport,
                 translation,
             );
 
             let toasts = (!self.toasts.is_empty()).then(|| {
                 overlay::Element::new(Box::new(Overlay {
                     position: layout.bounds().position() + translation,
+                    viewport: *viewport,
                     toasts: &mut self.toasts,
                     state: toasts_state,
                     instants,
@@ -457,6 +461,7 @@ mod toast {
 
     struct Overlay<'a, 'b, Message> {
         position: Point,
+        viewport: Rectangle,
         toasts: &'b mut [Element<'a, Message>],
         state: &'b mut [Tree],
         instants: &'b mut [Option<Instant>],
@@ -577,12 +582,12 @@ mod toast {
         ) {
             operation.container(None, layout.bounds(), &mut |operation| {
                 self.toasts
-                    .iter()
+                    .iter_mut()
                     .zip(self.state.iter_mut())
                     .zip(layout.children())
                     .for_each(|((child, state), layout)| {
                         child
-                            .as_widget()
+                            .as_widget_mut()
                             .operate(state, layout, renderer, operation);
                     });
             });
@@ -592,7 +597,6 @@ mod toast {
             &self,
             layout: Layout<'_>,
             cursor: mouse::Cursor,
-            viewport: &Rectangle,
             renderer: &Renderer,
         ) -> mouse::Interaction {
             self.toasts
@@ -600,23 +604,23 @@ mod toast {
                 .zip(self.state.iter())
                 .zip(layout.children())
                 .map(|((child, state), layout)| {
-                    child.as_widget().mouse_interaction(
-                        state, layout, cursor, viewport, renderer,
-                    )
+                    child
+                        .as_widget()
+                        .mouse_interaction(
+                            state,
+                            layout,
+                            cursor,
+                            &self.viewport,
+                            renderer,
+                        )
+                        .max(if cursor.is_over(layout.bounds()) {
+                            mouse::Interaction::Idle
+                        } else {
+                            Default::default()
+                        })
                 })
                 .max()
                 .unwrap_or_default()
-        }
-
-        fn is_over(
-            &self,
-            layout: Layout<'_>,
-            _renderer: &Renderer,
-            cursor_position: Point,
-        ) -> bool {
-            layout
-                .children()
-                .any(|layout| layout.bounds().contains(cursor_position))
         }
     }
 

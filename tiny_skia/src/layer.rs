@@ -8,7 +8,7 @@ use crate::graphics::layer;
 use crate::graphics::text::{Editor, Paragraph, Text};
 use crate::graphics::{self, Image};
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub type Stack = layer::Stack<Layer>;
 
@@ -17,8 +17,8 @@ pub struct Layer {
     pub bounds: Rectangle,
     pub quads: Vec<(Quad, Background)>,
     pub primitives: Vec<Item<Primitive>>,
-    pub text: Vec<Item<Text>>,
     pub images: Vec<Image>,
+    pub text: Vec<Item<Text>>,
 }
 
 impl Layer {
@@ -107,7 +107,7 @@ impl Layer {
 
     pub fn draw_text_cache(
         &mut self,
-        text: Rc<[Text]>,
+        text: Arc<[Text]>,
         clip_bounds: Rectangle,
         transformation: Transformation,
     ) {
@@ -163,7 +163,7 @@ impl Layer {
 
     pub fn draw_primitive_cache(
         &mut self,
-        primitives: Rc<[Primitive]>,
+        primitives: Arc<[Primitive]>,
         clip_bounds: Rectangle,
         transformation: Transformation,
     ) {
@@ -242,7 +242,7 @@ impl Layer {
                     Item::Cached(cache_a, bounds_a, transformation_a),
                     Item::Cached(cache_b, bounds_b, transformation_b),
                 ) => {
-                    Rc::ptr_eq(cache_a, cache_b)
+                    Arc::ptr_eq(cache_a, cache_b)
                         && bounds_a == bounds_b
                         && transformation_a == transformation_b
                 }
@@ -284,6 +284,10 @@ impl graphics::Layer for Layer {
         }
     }
 
+    fn bounds(&self) -> Rectangle {
+        self.bounds
+    }
+
     fn flush(&mut self) {}
 
     fn resize(&mut self, bounds: Rectangle) {
@@ -298,13 +302,60 @@ impl graphics::Layer for Layer {
         self.text.clear();
         self.images.clear();
     }
+
+    fn start(&self) -> usize {
+        if !self.quads.is_empty() {
+            return 1;
+        }
+
+        if !self.primitives.is_empty() {
+            return 2;
+        }
+
+        if !self.images.is_empty() {
+            return 3;
+        }
+
+        if !self.text.is_empty() {
+            return 4;
+        }
+
+        usize::MAX
+    }
+
+    fn end(&self) -> usize {
+        if !self.text.is_empty() {
+            return 4;
+        }
+
+        if !self.images.is_empty() {
+            return 3;
+        }
+
+        if !self.primitives.is_empty() {
+            return 2;
+        }
+
+        if !self.quads.is_empty() {
+            return 1;
+        }
+
+        0
+    }
+
+    fn merge(&mut self, layer: &mut Self) {
+        self.quads.append(&mut layer.quads);
+        self.primitives.append(&mut layer.primitives);
+        self.text.append(&mut layer.text);
+        self.images.append(&mut layer.images);
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Item<T> {
     Live(T),
     Group(Vec<T>, Rectangle, Transformation),
-    Cached(Rc<[T]>, Rectangle, Transformation),
+    Cached(Arc<[T]>, Rectangle, Transformation),
 }
 
 impl<T> Item<T> {

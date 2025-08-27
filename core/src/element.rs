@@ -9,7 +9,7 @@ use crate::{
     Vector, Widget,
 };
 
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 
 /// A generic [`Widget`].
 ///
@@ -239,6 +239,37 @@ impl<'a, Message, Theme, Renderer>
     }
 }
 
+impl<'a, Message, Theme, Renderer>
+    Borrow<dyn Widget<Message, Theme, Renderer> + 'a>
+    for &mut Element<'a, Message, Theme, Renderer>
+{
+    fn borrow(&self) -> &(dyn Widget<Message, Theme, Renderer> + 'a) {
+        self.widget.borrow()
+    }
+}
+
+impl<'a, Message, Theme, Renderer>
+    BorrowMut<dyn Widget<Message, Theme, Renderer> + 'a>
+    for Element<'a, Message, Theme, Renderer>
+{
+    fn borrow_mut(
+        &mut self,
+    ) -> &mut (dyn Widget<Message, Theme, Renderer> + 'a) {
+        self.widget.borrow_mut()
+    }
+}
+
+impl<'a, Message, Theme, Renderer>
+    BorrowMut<dyn Widget<Message, Theme, Renderer> + 'a>
+    for &mut Element<'a, Message, Theme, Renderer>
+{
+    fn borrow_mut(
+        &mut self,
+    ) -> &mut (dyn Widget<Message, Theme, Renderer> + 'a) {
+        self.widget.borrow_mut()
+    }
+}
+
 struct Map<'a, A, B, Theme, Renderer> {
     widget: Box<dyn Widget<A, Theme, Renderer> + 'a>,
     mapper: Box<dyn Fn(A) -> B + 'a>,
@@ -278,7 +309,7 @@ where
         self.widget.children()
     }
 
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         self.widget.diff(tree);
     }
 
@@ -291,7 +322,7 @@ where
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -300,7 +331,7 @@ where
     }
 
     fn operate(
-        &self,
+        &mut self,
         tree: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
@@ -366,14 +397,15 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, B, Theme, Renderer>> {
         let mapper = &self.mapper;
 
         self.widget
-            .overlay(tree, layout, renderer, translation)
+            .overlay(tree, layout, renderer, viewport, translation)
             .map(move |overlay| overlay.map(mapper))
     }
 }
@@ -420,12 +452,12 @@ where
         self.element.widget.children()
     }
 
-    fn diff(&self, tree: &mut Tree) {
+    fn diff(&mut self, tree: &mut Tree) {
         self.element.widget.diff(tree);
     }
 
     fn layout(
-        &self,
+        &mut self,
         tree: &mut Tree,
         renderer: &Renderer,
         limits: &layout::Limits,
@@ -434,7 +466,7 @@ where
     }
 
     fn operate(
-        &self,
+        &mut self,
         state: &mut Tree,
         layout: Layout<'_>,
         renderer: &Renderer,
@@ -517,12 +549,63 @@ where
     fn overlay<'b>(
         &'b mut self,
         state: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        self.element
-            .widget
-            .overlay(state, layout, renderer, translation)
+        self.element.widget.overlay(
+            state,
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a, T, Message, Theme, Renderer> From<Option<T>>
+    for Element<'a, Message, Theme, Renderer>
+where
+    T: Into<Self>,
+    Renderer: crate::Renderer,
+{
+    fn from(element: Option<T>) -> Self {
+        struct Void;
+
+        impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Void
+        where
+            Renderer: crate::Renderer,
+        {
+            fn size(&self) -> Size<Length> {
+                Size {
+                    width: Length::Fixed(0.0),
+                    height: Length::Fixed(0.0),
+                }
+            }
+
+            fn layout(
+                &mut self,
+                _tree: &mut Tree,
+                _renderer: &Renderer,
+                _limits: &layout::Limits,
+            ) -> layout::Node {
+                layout::Node::new(Size::ZERO)
+            }
+
+            fn draw(
+                &self,
+                _tree: &Tree,
+                _renderer: &mut Renderer,
+                _theme: &Theme,
+                _style: &renderer::Style,
+                _layout: Layout<'_>,
+                _cursor: mouse::Cursor,
+                _viewport: &Rectangle,
+            ) {
+            }
+        }
+
+        element.map(T::into).unwrap_or_else(|| Element::new(Void))
     }
 }
