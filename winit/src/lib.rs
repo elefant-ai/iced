@@ -87,6 +87,8 @@ where
         .build()
         .expect("Create event loop");
 
+    event_loop.listen_device_events(winit::event_loop::DeviceEvents::Always);
+
     let (proxy, worker) = Proxy::new(event_loop.create_proxy());
 
     #[cfg(feature = "debug")]
